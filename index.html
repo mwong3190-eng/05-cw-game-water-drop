@@ -8,15 +8,34 @@
 </head>
 <body>
     <div class="game-wrapper">
-        <h1 class="game-title">Water Drop</h1>
-        <p class="game-tagline">Catch the good drops, avoid the bad ones!</p>
+        <div class="top-header">
+            <img class="cw-logo" src="img/cw_logo-horizontal.png" alt="charity: water logo">
+            <div class="title-group">
+                <h1 class="game-title">Water Drop</h1>
+            </div>
+        </div>
         <div class="score-panel">
             <div class="score">Score: <span id="score">0</span></div>
             <div class="timer">Time: <span id="time">30</span>s</div>
-            <button id="start-btn">Start Game</button>
+            <div class="control-buttons">
+                <button id="start-btn">Start Game</button>
+                <button id="pause-btn" data-icon="pause" aria-label="Pause game" title="Pause game" disabled>
+                    <span class="pause-icon" aria-hidden="true"></span>
+                    <span class="play-icon" aria-hidden="true"></span>
+                </button>
+                <button id="reset-btn" aria-label="Reset game" title="Reset game">Reset</button>
+            </div>
         </div>
+        <p class="game-tagline">Catch the good drops, avoid the bad ones!</p>
+        <p id="game-message" aria-live="polite"></p>
         
         <div id="game-container">
+            <div id="bucket" aria-label="Bucket"></div>
+            <div id="resume-overlay" aria-hidden="true">
+                <div id="resume-countdown-box" aria-live="assertive" aria-atomic="true">
+                    <span id="resume-countdown-number">3</span>
+                </div>
+            </div>
         </div>
     </div>
     
