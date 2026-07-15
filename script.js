@@ -8,9 +8,22 @@ let resumeCountdownTimer;
 let scoreColorResetTimer;
 let score = 0;
 let timeLeft = 30;
+let currentLevel = 1;
+let pendingLevelStart = null;
+let cleanDropsCaught = 0;
+let contaminantsCaught = 0;
 
-const CONTAMINANT_CHANCE = 0.22;
+const LEVEL_ONE_CONTAMINANT_CHANCE = 0.18;
+const LEVEL_TWO_CONTAMINANT_CHANCE = 0.36;
+const FINAL_LEVEL_CONTAMINANT_CHANCE = 0.45;
 const CONTAMINANT_PENALTY = 1;
+const LEVEL_ONE_DROP_TARGET = 10;
+const LEVEL_TWO_DROP_TARGET = 10;
+const FINAL_MILESTONE_DROP_TARGET = 15;
+const LEVEL_TIME_LIMIT = 30;
+const LEVEL_ONE_FALL_DURATION_SECONDS = 4.2;
+const LEVEL_TWO_FALL_DURATION_SECONDS = 3.4;
+const FINAL_LEVEL_FALL_DURATION_SECONDS = 2.5;
 
 const WINNING_MESSAGES = [
   "Amazing work! You saved enough water drops to win!",
@@ -20,16 +33,42 @@ const WINNING_MESSAGES = [
 ];
 
 const LOSING_MESSAGES = [
-  "Nice try! Give it another shot and beat 20 points!",
-  "So close! Keep practicing and you'll get there!",
-  "Try again! Faster clicks will help you win!",
+  "Nice try!",
+  "So close! You'll get there!",
+  "Try again!",
   "Good effort! One more round and you can do it!"
 ];
 
+const FINAL_MILESTONE_MESSAGE =
+  "Final milestone unlocked! You collected 15 clean drops and avoided all contaminants!";
+const LEVEL_ONE_FAIL_MESSAGE =
+  "Level 1 not cleared. Catch at least 10 clean drops and avoid every contaminant.";
+const LEVEL_TWO_START_MESSAGE =
+  "Level 1 cleared! Level 2: Catch 10 clean drops and avoid all contaminants.";
+const LEVEL_ONE_START_MESSAGE =
+  "Level 1: catch at least 10 clean rain drops and avoid all contaminants";
+const LEVEL_TWO_FAIL_MESSAGE =
+  "Level 2 not cleared. Catch at least 10 clean drops and avoid every contaminant.";
+const LEVEL_ONE_FACT_PANEL_MESSAGE =
+  "<strong>Fact</strong>: Women and children globally spend 200 million hours every day just walking to collect water.<br><br><strong>Connection</strong>: In this game, your journey takes seconds. In real life, that walk takes hours away from school and work.";
+const LEVEL_TWO_FACT_PANEL_MESSAGE =
+  "<strong>Fact</strong>: Over 2 billion people are forced to use a drinking water source contaminated with feces.<br><br><strong>Connection</strong>: Dodging the contaminants in this level is a game for you, but avoiding waterborne bacteria is a daily matter of survival for millions.";
+
+const PANEL_ACTION_SHOW_LEVEL_TWO_MILESTONE = "show-level-two-milestone";
+const PANEL_ACTION_BEGIN_LEVEL_TWO = "begin-level-two";
+const PANEL_ACTION_BEGIN_LEVEL_ONE = "begin-level-one";
+const PANEL_ACTION_BEGIN_LEVEL_ONE_WITH_RESET = "begin-level-one-with-reset";
+const PANEL_ACTION_BEGIN_FINAL_LEVEL = "begin-final-level";
+const PANEL_ACTION_START_FINAL_ROUND = "start-final-round";
+
 const scoreElement = document.getElementById("score");
 const timeElement = document.getElementById("time");
+const timerElement = document.querySelector(".timer");
+const levelIndicatorElement = document.getElementById("level-indicator");
 const gameContainer = document.getElementById("game-container");
 const gameMessage = document.getElementById("game-message");
+const gameMessageText = document.getElementById("game-message-text");
+const milestoneCloseButton = document.getElementById("milestone-close-btn");
 const startButton = document.getElementById("start-btn");
 const pauseButton = document.getElementById("pause-btn");
 const resetButton = document.getElementById("reset-btn");
@@ -51,6 +90,7 @@ window.addEventListener("touchend", endBucketDrag);
 startButton.addEventListener("click", startGame);
 pauseButton.addEventListener("click", togglePause);
 resetButton.addEventListener("click", restartGame);
+milestoneCloseButton.addEventListener("click", dismissFinalMilestoneMessage);
 
 function startGame() {
   // Prevent multiple games from running at once
@@ -73,13 +113,41 @@ function restartGame() {
 function beginNewGame(withResetCountdown = false) {
   resetGameUI();
   gameRunning = true;
-  gamePaused = false;
+  gamePaused = true;
+
+  showLevelOneStartPanel(withResetCountdown);
+}
+
+function showLevelOneStartPanel(withResetCountdown = false) {
+  pendingLevelStart = withResetCountdown
+    ? PANEL_ACTION_BEGIN_LEVEL_ONE_WITH_RESET
+    : PANEL_ACTION_BEGIN_LEVEL_ONE;
+
+  gameMessage.classList.add("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = LEVEL_ONE_START_MESSAGE;
+  gameContainer.classList.add("paused");
+  gameContainer.classList.remove("dragging");
+  draggingBucket = false;
+
+  pauseButton.disabled = true;
+  setPauseButtonMode("pause");
+}
+
+function beginLevelOne(withResetCountdown = false) {
+  pendingLevelStart = null;
+
+  gameMessage.classList.remove("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = "";
+  gameContainer.classList.remove("paused");
 
   if (withResetCountdown) {
     beginResetCountdown();
     return;
   }
 
+  gamePaused = false;
   pauseButton.disabled = false;
   setPauseButtonMode("pause");
 
@@ -89,10 +157,18 @@ function beginNewGame(withResetCountdown = false) {
 
 function resetGameUI() {
   score = 0;
-  timeLeft = 30;
+  timeLeft = LEVEL_TIME_LIMIT;
+  currentLevel = 1;
+  pendingLevelStart = null;
+  cleanDropsCaught = 0;
+  contaminantsCaught = 0;
   scoreElement.textContent = score;
   timeElement.textContent = timeLeft;
-  gameMessage.textContent = "";
+  setTimerWarningState(false);
+  updateLevelIndicator();
+  gameMessageText.textContent = "";
+  gameMessage.classList.remove("final-milestone");
+  gameMessage.classList.remove("fact-panel");
   clearResumeCountdown();
   gameContainer.classList.remove("paused");
   gameContainer.classList.remove("dragging");
@@ -106,6 +182,7 @@ function updateTimer() {
 
   timeLeft -= 1;
   timeElement.textContent = timeLeft;
+  setTimerWarningState(timeLeft <= 5);
 
   if (timeLeft <= 0) {
     endGame();
@@ -113,8 +190,204 @@ function updateTimer() {
 }
 
 function endGame() {
+  if (currentLevel === 1) {
+    handleLevelOneEnd();
+    return;
+  }
+
+  if (currentLevel === 2) {
+    handleLevelTwoEnd();
+    return;
+  }
+
+  finishGameSession();
+
+  const reachedPerfectMilestone =
+    cleanDropsCaught >= FINAL_MILESTONE_DROP_TARGET && contaminantsCaught === 0;
+
+  if (reachedPerfectMilestone) {
+    gameMessage.classList.add("final-milestone");
+    gameMessage.classList.remove("fact-panel");
+    gameMessageText.textContent = FINAL_MILESTONE_MESSAGE;
+    return;
+  }
+
+  gameMessage.classList.remove("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+
+  const didWin = score >= 20;
+  const messageList = didWin ? WINNING_MESSAGES : LOSING_MESSAGES;
+  const randomIndex = Math.floor(Math.random() * messageList.length);
+  gameMessageText.textContent = messageList[randomIndex];
+}
+
+function handleLevelOneEnd() {
+  const reachedLevelOneMilestone =
+    cleanDropsCaught >= LEVEL_ONE_DROP_TARGET && contaminantsCaught === 0;
+
+  if (!reachedLevelOneMilestone) {
+    finishGameSession();
+    gameMessage.classList.remove("final-milestone");
+    gameMessage.classList.remove("fact-panel");
+    gameMessageText.textContent = LEVEL_ONE_FAIL_MESSAGE;
+    return;
+  }
+
+  showLevelOneFactPanel();
+}
+
+function showLevelOneFactPanel() {
+  stopIntervals();
+  clearDrops();
+  clearResumeCountdown();
+  clearTimeout(scoreColorResetTimer);
+  scoreElement.classList.remove("score-loss");
+
+  pendingLevelStart = PANEL_ACTION_SHOW_LEVEL_TWO_MILESTONE;
+  gamePaused = true;
+
+  gameMessage.classList.add("final-milestone");
+  gameMessage.classList.add("fact-panel");
+  gameMessageText.innerHTML = LEVEL_ONE_FACT_PANEL_MESSAGE;
+  gameContainer.classList.add("paused");
+  gameContainer.classList.remove("dragging");
+  draggingBucket = false;
+
+  pauseButton.disabled = true;
+  setPauseButtonMode("pause");
+}
+
+function showLevelTwoStartPanel() {
+  stopIntervals();
+  clearDrops();
+  clearResumeCountdown();
+  clearTimeout(scoreColorResetTimer);
+  scoreElement.classList.remove("score-loss");
+
+  pendingLevelStart = PANEL_ACTION_BEGIN_LEVEL_TWO;
+  gamePaused = true;
+
+  gameMessage.classList.add("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = LEVEL_TWO_START_MESSAGE;
+  gameContainer.classList.add("paused");
+  gameContainer.classList.remove("dragging");
+  draggingBucket = false;
+
+  pauseButton.disabled = true;
+  setPauseButtonMode("pause");
+}
+
+function beginLevelTwo() {
+  pendingLevelStart = null;
+
+  currentLevel = 2;
+  score = 0;
+  timeLeft = LEVEL_TIME_LIMIT;
+  cleanDropsCaught = 0;
+  contaminantsCaught = 0;
+  gamePaused = false;
+
+  scoreElement.textContent = score;
+  timeElement.textContent = timeLeft;
+  setTimerWarningState(false);
+  updateLevelIndicator();
+  gameMessage.classList.remove("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = "";
+  gameContainer.classList.remove("paused");
+  gameContainer.classList.remove("dragging");
+  draggingBucket = false;
+
+  pauseButton.disabled = false;
+  setPauseButtonMode("pause");
+  startIntervals();
+}
+
+function handleLevelTwoEnd() {
+  const reachedLevelTwoMilestone =
+    cleanDropsCaught >= LEVEL_TWO_DROP_TARGET && contaminantsCaught === 0;
+
+  if (!reachedLevelTwoMilestone) {
+    finishGameSession();
+    gameMessage.classList.remove("final-milestone");
+    gameMessage.classList.remove("fact-panel");
+    gameMessageText.textContent = LEVEL_TWO_FAIL_MESSAGE;
+    return;
+  }
+
+  showLevelTwoFactPanel();
+}
+
+function showLevelTwoFactPanel() {
+  stopIntervals();
+  clearDrops();
+  clearResumeCountdown();
+  clearTimeout(scoreColorResetTimer);
+  scoreElement.classList.remove("score-loss");
+
+  pendingLevelStart = PANEL_ACTION_BEGIN_FINAL_LEVEL;
+  gamePaused = true;
+
+  gameMessage.classList.add("final-milestone");
+  gameMessage.classList.add("fact-panel");
+  gameMessageText.innerHTML = LEVEL_TWO_FACT_PANEL_MESSAGE;
+  gameContainer.classList.add("paused");
+  gameContainer.classList.remove("dragging");
+  draggingBucket = false;
+
+  pauseButton.disabled = true;
+  setPauseButtonMode("pause");
+}
+
+function beginFinalLevel() {
+  stopIntervals();
+  clearDrops();
+  clearResumeCountdown();
+  clearTimeout(scoreColorResetTimer);
+  scoreElement.classList.remove("score-loss");
+
+  currentLevel = 3;
+  score = 0;
+  timeLeft = LEVEL_TIME_LIMIT;
+  cleanDropsCaught = 0;
+  contaminantsCaught = 0;
+  gamePaused = true;
+  pendingLevelStart = PANEL_ACTION_START_FINAL_ROUND;
+
+  scoreElement.textContent = score;
+  timeElement.textContent = timeLeft;
+  setTimerWarningState(false);
+  updateLevelIndicator();
+  gameMessage.classList.add("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = "Level 2 cleared! Final Round: Catch 15 clean drops and avoid all contaminants.";
+  gameContainer.classList.add("paused");
+  gameContainer.classList.remove("dragging");
+  draggingBucket = false;
+
+  pauseButton.disabled = true;
+  setPauseButtonMode("pause");
+}
+
+function startFinalRound() {
+  pendingLevelStart = null;
+  gamePaused = false;
+
+  gameMessage.classList.remove("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = "";
+  gameContainer.classList.remove("paused");
+
+  pauseButton.disabled = false;
+  setPauseButtonMode("pause");
+  startIntervals();
+}
+
+function finishGameSession() {
   gameRunning = false;
   gamePaused = false;
+  pendingLevelStart = null;
   clearTimeout(scoreColorResetTimer);
   scoreElement.classList.remove("score-loss");
   clearResumeCountdown();
@@ -125,11 +398,6 @@ function endGame() {
   gameContainer.classList.remove("dragging");
   draggingBucket = false;
   clearDrops();
-
-  const didWin = score >= 20;
-  const messageList = didWin ? WINNING_MESSAGES : LOSING_MESSAGES;
-  const randomIndex = Math.floor(Math.random() * messageList.length);
-  gameMessage.textContent = messageList[randomIndex];
 }
 
 function togglePause() {
@@ -215,6 +483,7 @@ function finishResetCountdown() {
   if (!gameRunning) return;
 
   gamePaused = false;
+  setTimerWarningState(false);
   pauseButton.disabled = false;
   setPauseButtonMode("pause");
   gameContainer.classList.remove("paused");
@@ -226,6 +495,7 @@ function finishResumeCountdown() {
   if (!gameRunning) return;
 
   gamePaused = false;
+  setTimerWarningState(false);
   pauseButton.disabled = false;
   setPauseButtonMode("pause");
   gameContainer.classList.remove("paused");
@@ -270,7 +540,8 @@ function createDrop() {
   const drop = document.createElement("div");
   drop.className = "water-drop";
 
-  const isContaminant = Math.random() < CONTAMINANT_CHANCE;
+  const contaminantChance = getContaminantChanceForLevel();
+  const isContaminant = Math.random() < contaminantChance;
   if (isContaminant) {
     drop.classList.add("contaminant-drop");
   }
@@ -287,8 +558,14 @@ function createDrop() {
   const xPosition = Math.random() * (gameWidth - size);
   drop.style.left = xPosition + "px";
 
-  // Make drops fall for 4 seconds
-  drop.style.animationDuration = "4s";
+  // Level 2 is 2 seconds faster than Level 1.
+  let dropFallDurationSeconds = LEVEL_ONE_FALL_DURATION_SECONDS;
+  if (currentLevel === 2) {
+    dropFallDurationSeconds = LEVEL_TWO_FALL_DURATION_SECONDS;
+  } else if (currentLevel === 3) {
+    dropFallDurationSeconds = FINAL_LEVEL_FALL_DURATION_SECONDS;
+  }
+  drop.style.animationDuration = `${dropFallDurationSeconds}s`;
 
   // Add the new drop to the game screen
   gameContainer.appendChild(drop);
@@ -304,9 +581,11 @@ function createDrop() {
 
     if (isDropCaught(drop)) {
       if (isContaminant) {
+        contaminantsCaught += 1;
         score -= CONTAMINANT_PENALTY;
         showScoreLossFeedback();
       } else {
+        cleanDropsCaught += 1;
         score += 1;
       }
 
@@ -391,4 +670,61 @@ function clearDrops() {
 function centerBucket() {
   bucket.style.left = "50%";
   bucket.style.transform = "translateX(-50%)";
+}
+
+function dismissFinalMilestoneMessage() {
+  if (!gameMessage.classList.contains("final-milestone")) return;
+
+  gameMessage.classList.remove("final-milestone");
+  gameMessage.classList.remove("fact-panel");
+  gameMessageText.textContent = "";
+
+  if (pendingLevelStart === PANEL_ACTION_BEGIN_LEVEL_ONE) {
+    beginLevelOne();
+    return;
+  }
+
+  if (pendingLevelStart === PANEL_ACTION_BEGIN_LEVEL_ONE_WITH_RESET) {
+    beginLevelOne(true);
+    return;
+  }
+
+  if (pendingLevelStart === PANEL_ACTION_SHOW_LEVEL_TWO_MILESTONE) {
+    showLevelTwoStartPanel();
+    return;
+  }
+
+  if (pendingLevelStart === PANEL_ACTION_BEGIN_LEVEL_TWO) {
+    beginLevelTwo();
+    return;
+  }
+
+  if (pendingLevelStart === PANEL_ACTION_BEGIN_FINAL_LEVEL) {
+    pendingLevelStart = null;
+    beginFinalLevel();
+    return;
+  }
+
+  if (pendingLevelStart === PANEL_ACTION_START_FINAL_ROUND) {
+    startFinalRound();
+  }
+}
+
+function getContaminantChanceForLevel() {
+  if (currentLevel === 1) return LEVEL_ONE_CONTAMINANT_CHANCE;
+  if (currentLevel === 2) return LEVEL_TWO_CONTAMINANT_CHANCE;
+  return FINAL_LEVEL_CONTAMINANT_CHANCE;
+}
+
+function updateLevelIndicator() {
+  if (currentLevel === 3) {
+    levelIndicatorElement.textContent = "Final";
+    return;
+  }
+
+  levelIndicatorElement.textContent = currentLevel;
+}
+
+function setTimerWarningState(isWarning) {
+  timerElement.classList.toggle("time-warning", isWarning);
 }

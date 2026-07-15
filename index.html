@@ -15,8 +15,11 @@
             </div>
         </div>
         <div class="score-panel">
-            <div class="score">Score: <span id="score">0</span></div>
-            <div class="timer">Time: <span id="time">30</span>s</div>
+            <div class="status-group">
+                <div class="score">Score: <span id="score">0</span></div>
+                <div class="timer">Time: <span id="time">30</span>s</div>
+            </div>
+            <div class="level-display">Level: <span id="level-indicator">1</span></div>
             <div class="control-buttons">
                 <button id="start-btn">Start Game</button>
                 <button id="pause-btn" data-icon="pause" aria-label="Pause game" title="Pause game" disabled>
@@ -27,9 +30,12 @@
             </div>
         </div>
         <p class="game-tagline">Catch the good drops, avoid the bad ones!</p>
-        <p id="game-message" aria-live="polite"></p>
         
         <div id="game-container">
+            <div id="game-message" aria-live="polite">
+                <span id="game-message-text"></span>
+                <button id="milestone-close-btn" type="button" aria-label="Close milestone message" title="Close">×</button>
+            </div>
             <div id="bucket" aria-label="Bucket"></div>
             <div id="resume-overlay" aria-hidden="true">
                 <div id="resume-countdown-box" aria-live="assertive" aria-atomic="true">
@@ -38,6 +44,11 @@
             </div>
         </div>
     </div>
+
+    <footer class="site-footer" aria-label="charity: water links">
+        <span>Learn more: <a href="https://www.charitywater.org" target="_blank" rel="noopener noreferrer">charitywater.org</a></span>
+        <span>Donate: <a href="https://www.charitywater.org/donate" target="_blank" rel="noopener noreferrer">charitywater.org/donate</a></span>
+    </footer>
     
     <script src="script.js"></script>
 </body>
